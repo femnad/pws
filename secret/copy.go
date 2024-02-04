@@ -17,6 +17,7 @@ const (
 	bufferSize      = 8192
 	concealedType   = "CONCEALED"
 	defaultCategory = "LOGIN"
+	emailKey        = "email"
 	passwordId      = "password"
 	regularType     = "STRING"
 	tempDir         = "/dev/shm"
@@ -126,7 +127,15 @@ func Copy(secretName string) error {
 		Value:   s.password,
 	})
 	username, ok := data[usernameId]
-	if ok {
+	if !ok {
+		email, exists := data[emailKey]
+		if exists {
+			username = email
+			delete(data, emailKey)
+		}
+	}
+
+	if username != "" {
 		fields = append(fields, field{
 			Id:      usernameId,
 			Type:    regularType,
