@@ -167,7 +167,6 @@ func Copy(secretName string) error {
 		return err
 	}
 
-	cmdStr := strings.Join(cmd, " ")
-	in = marecmd.Input{Command: cmdStr}
+	in = marecmd.Input{CmdSlice: cmd}
 	return marecmd.RunErrOnly(in)
 }
