@@ -14,15 +14,16 @@ import (
 )
 
 const (
-	bufferSize      = 8192
-	concealedType   = "CONCEALED"
-	defaultCategory = "LOGIN"
-	emailKey        = "email"
-	passwordId      = "password"
-	regularType     = "STRING"
-	tempDir         = "/dev/shm"
-	tempPattern     = "pws"
-	usernameId      = "username"
+	bufferSize         = 8192
+	concealedType      = "CONCEALED"
+	defaultCategory    = "LOGIN"
+	emailKey           = "email"
+	passwordId         = "password"
+	regularType        = "STRING"
+	secretUpdateSuffix = ".old"
+	tempDir            = "/dev/shm"
+	tempPattern        = "pws"
+	usernameId         = "username"
 )
 
 type secret struct {
@@ -38,7 +39,11 @@ type field struct {
 	Value   string `json:"value"`
 }
 
-type template struct {
+type listItem struct {
+	Title string `json:"title"`
+}
+
+type item struct {
 	Title    string `json:"title"`
 	Category string `json:"category"`
 	Fields   []field
@@ -77,7 +82,93 @@ func shred(filename string) error {
 	return os.Remove(filename)
 }
 
-func Copy(secretName string) error {
+func secretExists(name string) (bool, error) {
+	out, err := marecmd.RunFmtErr(marecmd.Input{Command: "op item list --format=json"})
+	if err != nil {
+		return false, err
+	}
+
+	var items []listItem
+	dec := json.NewDecoder(strings.NewReader(out.Stdout))
+	err = dec.Decode(&items)
+	if err != nil {
+		return false, err
+	}
+
+	for _, i := range items {
+		if i.Title == name {
+			return true, err
+		}
+	}
+
+	return false, nil
+}
+
+func create(i item, data map[string]string) error {
+	file, err := os.CreateTemp(tempDir, tempPattern)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shredErr := shred(file.Name())
+		if shredErr != nil {
+			log.Fatalf("error shredding temp file %v", shredErr)
+		}
+	}()
+
+	cmd := []string{"op", "item", "create", "--template", file.Name()}
+	for k, v := range data {
+		if k == usernameId {
+			continue
+		}
+
+		cmd = append(cmd, fmt.Sprintf("%s=%s", k, v))
+		continue
+	}
+
+	enc := json.NewEncoder(file)
+	err = enc.Encode(i)
+	if err != nil {
+		return err
+	}
+
+	in := marecmd.Input{CmdSlice: cmd}
+	return marecmd.RunErrOnly(in)
+}
+
+func duplicate(secretName, newName string) error {
+	in := marecmd.Input{Command: fmt.Sprintf("op item get %s --format json", secretName)}
+	out, err := marecmd.RunFmtErr(in)
+	if err != nil {
+		return err
+	}
+
+	dec := json.NewDecoder(strings.NewReader(out.Stdout))
+	var i item
+	err = dec.Decode(&i)
+	if err != nil {
+		return err
+	}
+
+	i.Title = newName
+	return create(i, make(map[string]string))
+}
+
+func deleteSecret(secretName string) error {
+	in := marecmd.Input{Command: fmt.Sprintf("op item delete %s", secretName)}
+	return marecmd.RunErrOnly(in)
+}
+
+func Copy(secretName string, overwrite bool) error {
+	exists, err := secretExists(secretName)
+	if err != nil {
+		return err
+	}
+
+	if exists && !overwrite {
+		return fmt.Errorf("not overwriting secret %s without confirmation", secretName)
+	}
+
 	in := marecmd.Input{Command: fmt.Sprintf("pass %s", secretName)}
 	out, err := marecmd.RunOutBuffer(in)
 	if err != nil {
@@ -128,8 +219,8 @@ func Copy(secretName string) error {
 	})
 	username, ok := data[usernameId]
 	if !ok {
-		email, exists := data[emailKey]
-		if exists {
+		email, keyExists := data[emailKey]
+		if keyExists {
 			username = email
 			delete(data, emailKey)
 		}
@@ -145,28 +236,30 @@ func Copy(secretName string) error {
 		})
 	}
 
-	cmd := []string{"op", "item", "create", "--template", file.Name()}
-	for k, v := range data {
-		if k == usernameId {
-			continue
+	if exists {
+		tempTitle := fmt.Sprintf("%s%s", secretName, secretUpdateSuffix)
+		err = duplicate(secretName, tempTitle)
+		if err != nil {
+			return err
 		}
 
-		cmd = append(cmd, fmt.Sprintf("%s=%s", k, v))
-		continue
+		err = deleteSecret(secretName)
+		if err != nil {
+			return err
+		}
+
+		defer func() {
+			err = deleteSecret(tempTitle)
+			if err != nil {
+				log.Fatalf("error deleting temporary secret %s: %v", tempTitle, err)
+			}
+		}()
 	}
 
-	t := template{
+	t := item{
 		Title:    secretName,
 		Category: defaultCategory,
 		Fields:   fields,
 	}
-
-	enc := json.NewEncoder(file)
-	err = enc.Encode(t)
-	if err != nil {
-		return err
-	}
-
-	in = marecmd.Input{CmdSlice: cmd}
-	return marecmd.RunErrOnly(in)
+	return create(t, data)
 }

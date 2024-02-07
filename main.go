@@ -11,11 +11,12 @@ import (
 
 const (
 	name    = "pws"
-	version = "v0.1.0"
+	version = "v0.2.0"
 )
 
 type args struct {
-	Secret string `arg:"positional,required"`
+	Overwrite bool   `arg:"-o,--overwrite" help:"Overwrite existing secret"`
+	Secret    string `arg:"positional,required"`
 }
 
 func (args) Version() string {
@@ -26,7 +27,7 @@ func main() {
 	var parsed args
 	arg.MustParse(&parsed)
 
-	err := secret.Copy(parsed.Secret)
+	err := secret.Copy(parsed.Secret, parsed.Overwrite)
 	if err != nil {
 		log.Fatal(err)
 	}
