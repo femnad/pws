@@ -47,6 +47,13 @@ type item struct {
 	Title    string `json:"title"`
 	Category string `json:"category"`
 	Fields   []field
+	vault    string
+}
+
+type Args struct {
+	Name      string
+	Overwrite bool
+	Vault     string
 }
 
 func shred(filename string) error {
@@ -117,6 +124,10 @@ func create(i item, data map[string]string) error {
 	}()
 
 	cmd := []string{"op", "item", "create", "--template", file.Name()}
+	if i.vault != "" {
+		cmd = append(cmd, "--vault", i.vault)
+	}
+
 	for k, v := range data {
 		if k == usernameId {
 			continue
@@ -159,13 +170,15 @@ func deleteSecret(secretName string) error {
 	return marecmd.RunErrOnly(in)
 }
 
-func Copy(secretName string, overwrite bool) error {
+func Copy(args Args) error {
+	secretName := args.Name
+
 	exists, err := secretExists(secretName)
 	if err != nil {
 		return err
 	}
 
-	if exists && !overwrite {
+	if exists && !args.Overwrite {
 		return fmt.Errorf("not overwriting secret %s without confirmation", secretName)
 	}
 
@@ -260,6 +273,7 @@ func Copy(secretName string, overwrite bool) error {
 		Title:    secretName,
 		Category: defaultCategory,
 		Fields:   fields,
+		vault:    args.Vault,
 	}
 	return create(t, data)
 }
