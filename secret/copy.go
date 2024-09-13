@@ -18,6 +18,7 @@ const (
 	concealedType      = "CONCEALED"
 	defaultCategory    = "LOGIN"
 	emailKey           = "email"
+	itemCategory       = "Password"
 	passwordId         = "password"
 	regularType        = "STRING"
 	secretUpdateSuffix = ".old"
@@ -123,7 +124,7 @@ func create(i item, data map[string]string) error {
 		}
 	}()
 
-	cmd := []string{"op", "item", "create", "--template", file.Name()}
+	cmd := []string{"op", "item", "create", "--category", itemCategory, "--template", file.Name()}
 	if i.vault != "" {
 		cmd = append(cmd, "--vault", i.vault)
 	}
